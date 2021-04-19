@@ -17,10 +17,13 @@ void begin_3d(GPU_Target* screen)
     GPU_FlushBlitBuffer();
     
     
-    GPU_MatrixMode(GPU_MODELVIEW);
+    GPU_MatrixMode(screen, GPU_MODEL);
     GPU_PushMatrix();
     GPU_LoadIdentity();
-    GPU_MatrixMode(GPU_PROJECTION);
+    GPU_MatrixMode(screen, GPU_VIEW);
+    GPU_PushMatrix();
+    GPU_LoadIdentity();
+    GPU_MatrixMode(screen, GPU_PROJECTION);
     GPU_PushMatrix();
     GPU_LoadIdentity();
 }
@@ -29,13 +32,15 @@ void end_3d(GPU_Target* screen)
 {
     GPU_ResetRendererState();
     
-    GPU_MatrixMode(GPU_MODELVIEW);
+    GPU_MatrixMode(screen, GPU_MODEL);
     GPU_PopMatrix();
-    GPU_MatrixMode(GPU_PROJECTION);
+    GPU_MatrixMode(screen, GPU_VIEW);
+    GPU_PopMatrix();
+    GPU_MatrixMode(screen, GPU_PROJECTION);
     GPU_PopMatrix();
 }
 
-void draw_spinning_triangle()
+void draw_spinning_triangle(GPU_Target* screen)
 {
     GLfloat gldata[21];
     float mvp[16];
@@ -113,7 +118,7 @@ void draw_3d_stuff(GPU_Target* screen)
 {
     begin_3d(screen);
     
-    draw_spinning_triangle();
+    draw_spinning_triangle(screen);
     
     end_3d(screen);
 }
@@ -126,7 +131,7 @@ void draw_more_3d_stuff(GPU_Target* screen)
     t = SDL_GetTicks()/1000.0f;
     GPU_Rotate(t*60, 0, 0, 1);
     GPU_Translate(0.4f, 0.4f, 0);
-    draw_spinning_triangle();
+    draw_spinning_triangle(screen);
     
     end_3d(screen);
 }

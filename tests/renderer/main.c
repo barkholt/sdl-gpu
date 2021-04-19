@@ -105,11 +105,6 @@ static GPU_Target* CreateTargetFromWindow(GPU_Renderer* renderer, Uint32 windowI
         target->context->windowID = windowID;
         target->context->data = NULL;  // Allocate a data structure as needed for other context data
         target->context->context = NULL;
-
-        GPU_InitMatrixStack(&target->context->projection_matrix);
-        GPU_InitMatrixStack(&target->context->modelview_matrix);
-
-        target->context->matrix_mode = GPU_MODELVIEW;
     }
     else
     {
@@ -145,7 +140,12 @@ static GPU_Target* CreateTargetFromWindow(GPU_Renderer* renderer, Uint32 windowI
     target->context->shapes_use_blending = 1;
     target->context->shapes_blend_mode = GPU_GetBlendModeFromPreset(GPU_BLEND_NORMAL);
     
-    target->context->matrix_mode = GPU_MODELVIEW;
+
+    GPU_InitMatrixStack(&target->projection_matrix);
+    GPU_InitMatrixStack(&target->view_matrix);
+    GPU_InitMatrixStack(&target->model_matrix);
+
+    target->matrix_mode = GPU_MODEL;
     
     
     renderer->impl->SetLineThickness(renderer, 1.0f);
@@ -171,6 +171,11 @@ static GPU_Target* CreateAliasTarget(GPU_Renderer* renderer, GPU_Target* target)
     
     // Copy the members
     *result = *target;
+
+	// Deep copies
+	GPU_CopyMatrixStack(&target->projection_matrix, &result->projection_matrix);
+	GPU_CopyMatrixStack(&target->view_matrix, &result->view_matrix);
+	GPU_CopyMatrixStack(&target->model_matrix, &result->model_matrix);
     
     // Alias info
     if(target->image != NULL)
@@ -218,6 +223,20 @@ static void SetAsCurrent(GPU_Renderer* renderer)
         return;
     
     renderer->impl->MakeCurrent(renderer, renderer->current_context_target, renderer->current_context_target->context->windowID);
+}
+
+static GPU_bool SetActiveTarget(GPU_Renderer* renderer, GPU_Target* target)
+{
+    GPU_Log(" %s (dummy)\n", __func__);
+    if(renderer->current_context_target == NULL)
+        return GPU_FALSE;
+    
+    if(renderer->current_context_target->context->active_target != target)
+    {
+        renderer->impl->FlushBlitBuffer(renderer);
+        renderer->current_context_target->context->active_target = target;
+    }
+    return GPU_TRUE;
 }
 	
 static void ResetRendererState(GPU_Renderer* renderer)
@@ -641,6 +660,12 @@ static GPU_Target* GetTarget(GPU_Renderer* renderer, GPU_Image* image)
     result->base_h = image->texture_h;
     
     result->viewport = GPU_MakeRect(0, 0, result->w, result->h);
+    
+    GPU_InitMatrixStack(&result->projection_matrix);
+    GPU_InitMatrixStack(&result->view_matrix);
+    GPU_InitMatrixStack(&result->model_matrix);
+
+    result->matrix_mode = GPU_MODEL;
     
     result->camera = GPU_GetDefaultCamera();
     
@@ -1182,6 +1207,7 @@ void set_renderer_functions(GPU_RendererImpl* impl)
     impl->CreateAliasTarget = &CreateAliasTarget;
     impl->MakeCurrent = &MakeCurrent;
     impl->SetAsCurrent = &SetAsCurrent;
+    impl->SetActiveTarget = &SetActiveTarget;
     impl->ResetRendererState = &ResetRendererState;
     impl->AddDepthBuffer = &AddDepthBuffer;
     impl->SetWindowResolution = &SetWindowResolution;

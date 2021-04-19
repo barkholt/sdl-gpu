@@ -1,6 +1,11 @@
 #ifndef _SDL_GPU_H__
 #define _SDL_GPU_H__
 
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES // So M_PI and company get defined on MSVC when we include math.h
+#endif
+#include <math.h> // Must be included before SDL.h, otherwise both try to define M_PI and we get a warning
+
 #include "SDL.h"
 #include <stdio.h>
 #include <stdarg.h>
@@ -12,10 +17,8 @@
 extern "C" {
 #endif
 
-// Compile-time versions
-#define SDL_GPU_VERSION_MAJOR 0
-#define SDL_GPU_VERSION_MINOR 11
-#define SDL_GPU_VERSION_PATCH 0
+// Compile-time version info
+#include "SDL_gpu_version.h"
 
 /* Auto-detect if we're using the SDL2 API by the headers available. */
 #if SDL_VERSION_ATLEAST(2,0,0)
@@ -57,6 +60,51 @@ extern "C" {
     #define GPU_bool bool
 #else
     #define GPU_bool int
+#endif
+
+#if defined(_MSC_VER) || (defined(__INTEL_COMPILER) && defined(_WIN32))
+   #if defined(_M_X64)
+      #define SDL_GPU_BITNESS 64
+   #else
+      #define SDL_GPU_BITNESS 32
+   #endif
+   #define SDL_GPU_LONG_SIZE 4
+#elif defined(__clang__) || defined(__INTEL_COMPILER) || defined(__GNUC__)
+   #if defined(__x86_64)
+      #define SDL_GPU_BITNESS 64
+   #else
+      #define SDL_GPU_BITNESS 32
+   #endif
+   #if __LONG_MAX__ == 2147483647L
+      #define SDL_GPU_LONG_SIZE 4
+   #else
+      #define SDL_GPU_LONG_SIZE 8
+   #endif
+#endif
+
+// Struct padding for 32 or 64 bit alignment
+#if SDL_GPU_BITNESS == 32
+#define GPU_PAD_1_TO_32 char _padding[1];
+#define GPU_PAD_2_TO_32 char _padding[2];
+#define GPU_PAD_3_TO_32 char _padding[3];
+#define GPU_PAD_1_TO_64 char _padding[1];
+#define GPU_PAD_2_TO_64 char _padding[2];
+#define GPU_PAD_3_TO_64 char _padding[3];
+#define GPU_PAD_4_TO_64 
+#define GPU_PAD_5_TO_64 char _padding[1];
+#define GPU_PAD_6_TO_64 char _padding[2];
+#define GPU_PAD_7_TO_64 char _padding[3];
+#elif SDL_GPU_BITNESS == 64
+#define GPU_PAD_1_TO_32 char _padding[1];
+#define GPU_PAD_2_TO_32 char _padding[2];
+#define GPU_PAD_3_TO_32 char _padding[3];
+#define GPU_PAD_1_TO_64 char _padding[1];
+#define GPU_PAD_2_TO_64 char _padding[2];
+#define GPU_PAD_3_TO_64 char _padding[3];
+#define GPU_PAD_4_TO_64 char _padding[4];
+#define GPU_PAD_5_TO_64 char _padding[5];
+#define GPU_PAD_6_TO_64 char _padding[6];
+#define GPU_PAD_7_TO_64 char _padding[7];
 #endif
 
 #define GPU_FALSE 0
@@ -122,6 +170,8 @@ typedef struct GPU_RendererID
     GPU_RendererEnum renderer;
     int major_version;
     int minor_version;
+	
+	GPU_PAD_4_TO_64
 } GPU_RendererID;
 
 
@@ -285,28 +335,30 @@ typedef struct GPU_Image
 	struct GPU_Renderer* renderer;
 	GPU_Target* context_target;
 	GPU_Target* target;
+	void* data;
+	
 	Uint16 w, h;
-	GPU_bool using_virtual_resolution;
 	GPU_FormatEnum format;
 	int num_layers;
 	int bytes_per_pixel;
 	Uint16 base_w, base_h;  // Original image dimensions
 	Uint16 texture_w, texture_h;  // Underlying texture dimensions
-	GPU_bool has_mipmaps;
 	
 	float anchor_x; // Normalized coords for the point at which the image is blitted.  Default is (0.5, 0.5), that is, the image is drawn centered.
 	float anchor_y; // These are interpreted according to GPU_SetCoordinateMode() and range from (0.0 - 1.0) normally.
 	
 	SDL_Color color;
-	GPU_bool use_blending;
 	GPU_BlendMode blend_mode;
 	GPU_FilterEnum filter_mode;
 	GPU_SnapEnum snap_mode;
 	GPU_WrapEnum wrap_mode_x;
 	GPU_WrapEnum wrap_mode_y;
 	
-	void* data;
 	int refcount;
+	
+	GPU_bool using_virtual_resolution;
+	GPU_bool has_mipmaps;
+	GPU_bool use_blending;
 	GPU_bool is_alias;
 } GPU_Image;
 
@@ -328,8 +380,11 @@ typedef struct GPU_Camera
 {
 	float x, y, z;
 	float angle;
-	float zoom;
+	float zoom_x, zoom_y;
 	float z_near, z_far;  // z clipping planes
+	GPU_bool use_centered_origin;  // move rotation/scaling origin to the center of the camera's view
+	
+	GPU_PAD_7_TO_64
 } GPU_Camera;
 
 
@@ -352,8 +407,9 @@ typedef struct GPU_ShaderBlock
 
 
 
-#define GPU_MODELVIEW 0
-#define GPU_PROJECTION 1
+#define GPU_MODEL 0
+#define GPU_VIEW 1
+#define GPU_PROJECTION 2
 
 /*! \ingroup Matrix
  * Matrix stack data structure for global vertex transforms.  */
@@ -371,7 +427,14 @@ typedef struct GPU_Context
 {
     /*! SDL_GLContext */
     void* context;
-    GPU_bool failed;
+	
+	/*! Last target used */
+	GPU_Target* active_target;
+	
+    GPU_ShaderBlock current_shader_block;
+    GPU_ShaderBlock default_textured_shader_block;
+    GPU_ShaderBlock default_untextured_shader_block;
+	
     
     /*! SDL window ID */
 	Uint32 windowID;
@@ -388,27 +451,31 @@ typedef struct GPU_Context
 	int stored_window_w;
 	int stored_window_h;
 	
+	/*! Shader handles used in the default shader programs */
+	Uint32 default_textured_vertex_shader_id;
+	Uint32 default_textured_fragment_shader_id;
+	Uint32 default_untextured_vertex_shader_id;
+	Uint32 default_untextured_fragment_shader_id;
+	
+	
+	
 	/*! Internal state */
 	Uint32 current_shader_program;
 	Uint32 default_textured_shader_program;
 	Uint32 default_untextured_shader_program;
 	
-    GPU_ShaderBlock current_shader_block;
-    GPU_ShaderBlock default_textured_shader_block;
-    GPU_ShaderBlock default_untextured_shader_block;
-	
-	GPU_bool shapes_use_blending;
 	GPU_BlendMode shapes_blend_mode;
 	float line_thickness;
-	GPU_bool use_texturing;
-	
-    int matrix_mode;
-    GPU_MatrixStack projection_matrix;
-    GPU_MatrixStack modelview_matrix;
     
 	int refcount;
 	
 	void* data;
+	
+    GPU_bool failed;
+	GPU_bool use_texturing;
+	GPU_bool shapes_use_blending;
+	
+	GPU_PAD_5_TO_64
 } GPU_Context;
 
 
@@ -429,27 +496,37 @@ struct GPU_Target
 	GPU_Image* image;
 	void* data;
 	Uint16 w, h;
-	GPU_bool using_virtual_resolution;
 	Uint16 base_w, base_h;  // The true dimensions of the underlying image or window
-	GPU_bool use_clip_rect;
 	GPU_Rect clip_rect;
-	GPU_bool use_color;
 	SDL_Color color;
 	
 	GPU_Rect viewport;
 	
 	/*! Perspective and object viewing transforms. */
+	int matrix_mode;
+	GPU_MatrixStack projection_matrix;
+	GPU_MatrixStack view_matrix;
+	GPU_MatrixStack model_matrix;
+
 	GPU_Camera camera;
-	GPU_bool use_camera;
 	
-	GPU_bool use_depth_test;
-	GPU_bool use_depth_write;
+	GPU_bool using_virtual_resolution;
+	GPU_bool use_clip_rect;
+	GPU_bool use_color;
+	GPU_bool use_camera;
+
+	
 	GPU_ComparisonEnum depth_function;
 	
 	/*! Renderer context data.  NULL if the target does not represent a window or rendering context. */
 	GPU_Context* context;
 	int refcount;
+	
+	GPU_bool use_depth_test;
+	GPU_bool use_depth_write;
 	GPU_bool is_alias;
+	
+	GPU_PAD_1_TO_64
 };
 
 /*! \ingroup Initialization
@@ -608,34 +685,41 @@ typedef enum {
 /*! \ingroup ShaderInterface */
 typedef struct GPU_AttributeFormat
 {
-    GPU_bool is_per_sprite;  // Per-sprite values are expanded to 4 vertices
     int num_elems_per_value;
     GPU_TypeEnum type;  // GPU_TYPE_FLOAT, GPU_TYPE_INT, GPU_TYPE_UNSIGNED_INT, etc.
-    GPU_bool normalize;
     int stride_bytes;  // Number of bytes between two vertex specifications
     int offset_bytes;  // Number of bytes to skip at the beginning of 'values'
+    GPU_bool is_per_sprite;  // Per-sprite values are expanded to 4 vertices
+    GPU_bool normalize;
+	
+	GPU_PAD_2_TO_32
 } GPU_AttributeFormat;
 
 /*! \ingroup ShaderInterface */
 typedef struct GPU_Attribute
 {
-    int location;
     void* values;  // Expect 4 values for each sprite
     GPU_AttributeFormat format;
+    int location;
+	
+	GPU_PAD_4_TO_64
 } GPU_Attribute;
 
 /*! \ingroup ShaderInterface */
 typedef struct GPU_AttributeSource
 {
-    GPU_bool enabled;
-    int num_values;
     void* next_value;
+    void* per_vertex_storage;  // Could point to the attribute's values or to allocated storage
+	
+    int num_values;
     // Automatic storage format
     int per_vertex_storage_stride_bytes;
     int per_vertex_storage_offset_bytes;
     int per_vertex_storage_size;  // Over 0 means that the per-vertex storage has been automatically allocated
-    void* per_vertex_storage;  // Could point to the attribute's values or to allocated storage
     GPU_Attribute attribute;
+    GPU_bool enabled;
+	
+	GPU_PAD_7_TO_64
 } GPU_AttributeSource;
 
 
@@ -658,8 +742,10 @@ typedef enum {
 typedef struct GPU_ErrorObject
 {
     char* function;
-    GPU_ErrorEnum error;
     char* details;
+    GPU_ErrorEnum error;
+	
+	GPU_PAD_4_TO_64
 } GPU_ErrorObject;
 
 
@@ -708,14 +794,16 @@ struct GPU_Renderer
 	/*! Current display target */
 	GPU_Target* current_context_target;
 	
-	/*! 0 for inverted, 1 for mathematical */
-	GPU_bool coordinate_mode;
-	
 	/*! Default is (0.5, 0.5) - images draw centered. */
 	float default_image_anchor_x;
 	float default_image_anchor_y;
 	
 	struct GPU_RendererImpl* impl;
+	
+	/*! 0 for inverted, 1 for mathematical */
+	GPU_bool coordinate_mode;
+	
+	GPU_PAD_7_TO_64
 };
 
 
@@ -979,6 +1067,12 @@ DECLSPEC GPU_bool SDLCALL GPU_SetFullscreen(GPU_bool enable_fullscreen, GPU_bool
 /*! Returns true if the current context target's window is in fullscreen mode. */
 DECLSPEC GPU_bool SDLCALL GPU_GetFullscreen(void);
 
+/*! \return Returns the last active target. */
+DECLSPEC GPU_Target* SDLCALL GPU_GetActiveTarget(void);
+
+/*! \return Sets the currently active target for matrix modification functions. */
+DECLSPEC GPU_bool SDLCALL GPU_SetActiveTarget(GPU_Target* target);
+
 /*! Enables/disables alpha blending for shape rendering on the current window. */
 DECLSPEC void SDLCALL GPU_SetShapeBlending(GPU_bool enable);
 
@@ -1012,6 +1106,8 @@ DECLSPEC float SDLCALL GPU_GetLineThickness(void);
 
 /*! \ingroup TargetControls
  *  @{ */
+ 
+ 
 
 /*! Creates a target that aliases the given target.  Aliases can be used to store target settings (e.g. viewports) for easy switching.
  * GPU_FreeTarget() frees the alias's memory, but does not affect the original. */
@@ -1050,7 +1146,7 @@ DECLSPEC void SDLCALL GPU_SetViewport(GPU_Target* target, GPU_Rect viewport);
 /*! Resets the given target's viewport to the entire target area. */
 DECLSPEC void SDLCALL GPU_UnsetViewport(GPU_Target* target);
 
-/*! \return A GPU_Camera with position (0, 0, 0), angle of 0, zoom of 1, and near/far clipping planes of -100 and 100. */
+/*! \return A GPU_Camera with position (0, 0, 0), angle of 0, zoom of 1, centered origin, and near/far clipping planes of -100 and 100. */
 DECLSPEC GPU_Camera SDLCALL GPU_GetDefaultCamera(void);
 
 /*! \return The camera of the given render target.  If target is NULL, returns the default camera. */
@@ -1364,31 +1460,70 @@ DECLSPEC void SDLCALL GPU_MultiplyAndAssign(float* result, const float* B);
 /*! Returns an internal string that represents the contents of matrix A. */
 DECLSPEC const char* SDLCALL GPU_GetMatrixString(const float* A);
 
-/*! Returns the current matrix from the top of the matrix stack.  Returns NULL if stack is empty. */
+/*! Returns the current matrix from the active target.  Returns NULL if stack is empty. */
 DECLSPEC float* SDLCALL GPU_GetCurrentMatrix(void);
 
-/*! Returns the current modelview matrix from the top of the matrix stack.  Returns NULL if stack is empty. */
-DECLSPEC float* SDLCALL GPU_GetModelView(void);
+/*! Returns the current matrix from the top of the matrix stack.  Returns NULL if stack is empty. */
+DECLSPEC float* SDLCALL GPU_GetTopMatrix(GPU_MatrixStack* stack);
 
-/*! Returns the current projection matrix from the top of the matrix stack.  Returns NULL if stack is empty. */
+/*! Returns the current model matrix from the active target.  Returns NULL if stack is empty. */
+DECLSPEC float* SDLCALL GPU_GetModel(void);
+
+/*! Returns the current view matrix from the active target.  Returns NULL if stack is empty. */
+DECLSPEC float* SDLCALL GPU_GetView(void);
+
+/*! Returns the current projection matrix from the active target.  Returns NULL if stack is empty. */
 DECLSPEC float* SDLCALL GPU_GetProjection(void);
 
-/*! Copies the current modelview-projection matrix into the given 'result' matrix (result = P*M). */
+/*! Copies the current modelview-projection matrix from the active target into the given 'result' matrix (result = P*V*M). */
 DECLSPEC void SDLCALL GPU_GetModelViewProjection(float* result);
 
 
 // Matrix stack manipulators
 
+/*! Returns a newly allocated matrix stack that has already been initialized. */
+DECLSPEC GPU_MatrixStack* SDLCALL GPU_CreateMatrixStack(void);
+
+/*! Frees the memory for the matrix stack and any matrices it contains. */
+DECLSPEC void SDLCALL GPU_FreeMatrixStack(GPU_MatrixStack* stack);
+
 /*! Allocate new matrices for the given stack. */
 DECLSPEC void SDLCALL GPU_InitMatrixStack(GPU_MatrixStack* stack);
 
-/*! Changes matrix mode to either GPU_PROJECTION or GPU_MODELVIEW.  Further matrix stack operations manipulate that particular stack. */
-DECLSPEC void SDLCALL GPU_MatrixMode(int matrix_mode);
+/*! Copies matrices from one stack to another. */
+DECLSPEC void SDLCALL GPU_CopyMatrixStack(const GPU_MatrixStack* source, GPU_MatrixStack* dest);
 
-/*! Pushes the current matrix as a new matrix stack item. */
+/*! Deletes matrices in the given stack. */
+DECLSPEC void SDLCALL GPU_ClearMatrixStack(GPU_MatrixStack* stack);
+
+/*! Reapplies the default orthographic projection matrix, based on camera and coordinate settings. */
+DECLSPEC void SDLCALL GPU_ResetProjection(GPU_Target* target);
+
+/*! Sets the active target and changes matrix mode to GPU_PROJECTION, GPU_VIEW, or GPU_MODEL.  Further matrix stack operations manipulate that particular stack. */
+DECLSPEC void SDLCALL GPU_MatrixMode(GPU_Target* target, int matrix_mode);
+
+/*! Copies the given matrix to the active target's projection matrix. */
+DECLSPEC void SDLCALL GPU_SetProjection(const float* A);
+
+/*! Copies the given matrix to the active target's view matrix. */
+DECLSPEC void SDLCALL GPU_SetView(const float* A);
+
+/*! Copies the given matrix to the active target's model matrix. */
+DECLSPEC void SDLCALL GPU_SetModel(const float* A);
+
+/*! Copies the given matrix to the active target's projection matrix. */
+DECLSPEC void SDLCALL GPU_SetProjectionFromStack(GPU_MatrixStack* stack);
+
+/*! Copies the given matrix to the active target's view matrix. */
+DECLSPEC void SDLCALL GPU_SetViewFromStack(GPU_MatrixStack* stack);
+
+/*! Copies the given matrix to the active target's model matrix. */
+DECLSPEC void SDLCALL GPU_SetModelFromStack(GPU_MatrixStack* stack);
+
+/*! Pushes the current matrix as a new matrix stack item to be restored later. */
 DECLSPEC void SDLCALL GPU_PushMatrix(void);
 
-/*! Removes the current matrix from the stack. */
+/*! Removes the current matrix from the stack, restoring the previously pushed matrix. */
 DECLSPEC void SDLCALL GPU_PopMatrix(void);
 
 /*! Fills current matrix with the identity matrix. */
@@ -1402,6 +1537,12 @@ DECLSPEC void SDLCALL GPU_Ortho(float left, float right, float bottom, float top
 
 /*! Multiplies a perspective projection matrix into the current matrix. */
 DECLSPEC void SDLCALL GPU_Frustum(float left, float right, float bottom, float top, float z_near, float z_far);
+
+/*! Multiplies a perspective projection matrix into the current matrix. */
+DECLSPEC void SDLCALL GPU_Perspective(float fovy, float aspect, float z_near, float z_far);
+
+/*! Multiplies a view matrix into the current matrix. */
+DECLSPEC void SDLCALL GPU_LookAt(float eye_x, float eye_y, float eye_z, float target_x, float target_y, float target_z, float up_x, float up_y, float up_z);
 
 /*! Adds a translation into the current matrix. */
 DECLSPEC void SDLCALL GPU_Translate(float x, float y, float z);

@@ -156,11 +156,13 @@ int main(int argc, char* argv[])
 
             if(keystates[KEY_MINUS])
             {
-                camera.zoom -= 1.0f*dt;
+                camera.zoom_x -= 1.0f*dt;
+                camera.zoom_y -= 1.0f*dt;
             }
             else if(keystates[KEY_EQUALS])
             {
-                camera.zoom += 1.0f*dt;
+                camera.zoom_x += 1.0f*dt;
+                camera.zoom_y += 1.0f*dt;
             }
 
             GPU_SetCamera(screen, &camera);
@@ -172,6 +174,10 @@ int main(int argc, char* argv[])
                 // Blitting
                 GPU_Blit(image, NULL, screen, x + image->w/2, y + image->h/2);
                 GPU_Blit(image2, NULL, screen, x + image2->w/2, y + image->h + image2->h/2);
+
+				float scale = 2.0f;
+				GPU_BlitScale(image, NULL, screen, x + image->w + scale * image->w / 2, y + scale * image->h / 2, 2, 2);
+				GPU_BlitScale(image2, NULL, screen, x + image2->w + scale * image2->w / 2, y + scale * image->h + scale * image2->h / 2, 2, 2);
             }
             else if(mode == 1)
             {

@@ -31,7 +31,7 @@
 	symbols in library are missing the OES suffix,
 	even though the headers seem to be named right.
 */
-#ifdef SDL_GPU_USE_BROADCOM_RASPBERRYPI_WORKAROUND
+#ifdef ADD_MISSING_OES_FUNCTIONS
 	extern void glBlendEquation(GLenum mode);
 	extern void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha);
 	extern void glBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
@@ -72,7 +72,6 @@ typedef struct ContextData_GLES_1
 	GPU_ComparisonEnum last_depth_function;
 	
 	GPU_Image* last_image;
-	GPU_Target* last_target;
 	float* blit_buffer;  // Holds sets of 4 vertices and 4 tex coords interleaved (e.g. [x0, y0, z0, s0, t0, ...]).
 	unsigned short blit_buffer_num_vertices;
 	unsigned short blit_buffer_max_num_vertices;

@@ -2,11 +2,6 @@
 See a particular renderer's *.c file for specifics. */
 
 
-
-
-
-
-
 // All shapes start this way for setup and so they can access the blit buffer properly
 #define BEGIN_UNTEXTURED(function_name, shape, num_additional_vertices, num_additional_indices) \
 	GPU_CONTEXT_DATA* cdata; \
@@ -34,7 +29,7 @@ See a particular renderer's *.c file for specifics. */
         return; \
     } \
      \
-    if(!bindFramebuffer(renderer, target)) \
+    if(!SetActiveTarget(renderer, target)) \
     { \
         GPU_PushErrorCode(function_name, GPU_ERROR_BACKEND_ERROR, "Failed to bind framebuffer."); \
         return; \

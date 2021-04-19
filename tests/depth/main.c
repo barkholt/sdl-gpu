@@ -64,6 +64,7 @@ int main(int argc, char* argv[])
             
             GPU_ClearRGB(screen, 200, 200, 200);
             
+            GPU_MatrixMode(screen, GPU_MODEL);
             if(!mode)
             {
                 // Draw to screen directly

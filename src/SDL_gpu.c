@@ -15,6 +15,11 @@
 	#pragma warning(push)
 	// Visual Studio wants to complain about while(0)
 	#pragma warning(disable: 4127)
+
+	// Disable warning: selection for inlining
+	#pragma warning(disable: 4514 4711)
+	// Disable warning: Spectre mitigation
+	#pragma warning(disable: 5045)
 #endif
 
 #include "stb_image.h"
@@ -483,6 +488,8 @@ GPU_Target* GPU_CreateTargetFromWindow(Uint32 windowID)
     return _gpu_current_renderer->impl->CreateTargetFromWindow(_gpu_current_renderer, windowID, NULL);
 }
 
+
+
 GPU_Target* GPU_CreateAliasTarget(GPU_Target* target)
 {
     if(!CHECK_RENDERER)
@@ -524,6 +531,23 @@ GPU_bool GPU_GetFullscreen(void)
         return GPU_FALSE;
     return (surf->flags & SDL_FULLSCREEN) != 0;
 #endif
+}
+
+GPU_Target* GPU_GetActiveTarget(void)
+{
+    GPU_Target* context_target = GPU_GetContextTarget();
+    if(context_target == NULL)
+        return NULL;
+
+    return context_target->context->active_target;
+}
+
+GPU_bool GPU_SetActiveTarget(GPU_Target* target)
+{
+    if(_gpu_current_renderer == NULL)
+        return GPU_FALSE;
+
+    return _gpu_current_renderer->impl->SetActiveTarget(_gpu_current_renderer, target);
 }
 
 GPU_bool GPU_AddDepthBuffer(GPU_Target* target)
@@ -764,7 +788,7 @@ void GPU_PushErrorCode(const char* function, GPU_ErrorEnum error, const char* de
 GPU_ErrorObject GPU_PopErrorCode(void)
 {
     unsigned int i;
-    GPU_ErrorObject result = {NULL, GPU_ERROR_NONE, NULL};
+    GPU_ErrorObject result = {NULL, NULL, GPU_ERROR_NONE};
 
     gpu_init_error_queue();
 
@@ -894,7 +918,7 @@ void GPU_UnsetViewport(GPU_Target* target)
 
 GPU_Camera GPU_GetDefaultCamera(void)
 {
-    GPU_Camera cam = {0.0f, 0.0f, 0.0f, 0.0f, 1.0f, -100.0f, 100.0f};
+    GPU_Camera cam = {0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, -100.0f, 100.0f, true};
     return cam;
 }
 
@@ -1065,10 +1089,17 @@ static SDL_Surface* gpu_copy_raw_surface_data(unsigned char* data, int width, in
 #endif
         break;
     case 4:
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+        rmask = 0xff000000;
+        gmask = 0x00ff0000;
+        bmask = 0x0000ff00;
+        amask = 0x000000ff;
+#else
         Rmask = 0x000000ff;
         Gmask = 0x0000ff00;
         Bmask = 0x00ff0000;
         Amask = 0xff000000;
+#endif
         break;
     default:
         Rmask = Gmask = Bmask = 0;
@@ -1078,6 +1109,7 @@ static SDL_Surface* gpu_copy_raw_surface_data(unsigned char* data, int width, in
     }
 
     result = SDL_CreateRGBSurface(SDL_SWSURFACE, width, height, channels*8, Rmask, Gmask, Bmask, Amask);
+    //result = SDL_CreateRGBSurfaceFrom(data, width, height, channels * 8, width * channels, Rmask, Gmask, Bmask, Amask);
     if(result == NULL)
     {
         GPU_PushErrorCode(__func__, GPU_ERROR_DATA_ERROR, "Failed to create new %dx%d surface", width, height);
